@@ -1,0 +1,32 @@
+From b7605ae90371980bcfd00f40990656883b5ed7fb Mon Sep 17 00:00:00 2001
+From: Lincoln Wallace <lincoln.wallace@canonical.com>
+Date: Thu, 16 Jan 2025 16:47:16 -0300
+Subject: [PATCH] feat: Build the container toolkit statically
+
+Signed-off-by: Lincoln Wallace <lincoln.wallace@canonical.com>
+---
+ Makefile | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index be9da4bc..78353120 100644
+--- a/Makefile
++++ b/Makefile
+@@ -60,12 +60,12 @@ endif
+ cmds: $(CMD_TARGETS)
+ 
+ ifneq ($(shell uname),Darwin)
+-EXTLDFLAGS = -Wl,--export-dynamic -Wl,--unresolved-symbols=ignore-in-object-files -Wl,-z,lazy
++EXTLDFLAGS = -Wl,-static -Wl,--unresolved-symbols=ignore-in-object-files -Wl,-z,lazy
+ else
+ EXTLDFLAGS = -Wl,-undefined,dynamic_lookup
+ endif
+ $(CMD_TARGETS): cmd-%:
+-	go build -ldflags "-s -w '-extldflags=$(EXTLDFLAGS)' -X $(CLI_VERSION_PACKAGE).gitCommit=$(GIT_COMMIT) -X $(CLI_VERSION_PACKAGE).version=$(CLI_VERSION)" $(COMMAND_BUILD_OPTIONS) $(MODULE)/cmd/$(*)
++	CGO_ENABLED=0 go build -ldflags "-s -w '-extldflags=$(EXTLDFLAGS)' -X $(CLI_VERSION_PACKAGE).gitCommit=$(GIT_COMMIT) -X $(CLI_VERSION_PACKAGE).version=$(CLI_VERSION)" $(COMMAND_BUILD_OPTIONS) $(MODULE)/cmd/$(*)
+ 
+ build:
+ 	go build ./...
+-- 
+2.43.0
+

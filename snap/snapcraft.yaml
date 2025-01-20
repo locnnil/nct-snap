@@ -1,0 +1,201 @@
+name: nvidia-container-runtime
+version: '1.17.3'
+summary: Nvidia container runtime
+description: Refer to https://snapcraft.io/nvidia-container-runtime
+license: (Apache-2.0 AND MIT AND GPL-2.0)
+
+grade: stable
+confinement: strict
+
+base: core24
+assumes:
+  - snapd2.59.1
+
+layout:
+  /etc/docker:
+    bind: $SNAP_DATA/etc/docker
+  /etc/gitconfig:
+    bind-file: $SNAP_DATA/etc/gitconfig
+  /usr/libexec/docker/cli-plugins:
+    symlink: $SNAP/usr/libexec/docker/cli-plugins
+
+environment:
+  GIT_EXEC_PATH: "$SNAP/usr/lib/git-core"
+  GIT_TEMPLATE_DIR: "$SNAP/usr/share/git-core/templates"
+  # For nvidia support #
+  LD_LIBRARY_PATH:    $SNAP/graphics/lib/${CRAFT_ARCH_TRIPLET_BUILD_FOR}:${SNAP}/lib/:${SNAP}/lib/${CRAFT_ARCH_TRIPLET_BUILD_FOR}:${SNAP}/usr/lib/:${SNAP}/usr/lib/${CRAFT_ARCH_TRIPLET_BUILD_FOR}
+  LIBGL_DRIVERS_PATH: $SNAP/graphics/lib/${CRAFT_ARCH_TRIPLET_BUILD_FOR}/dri
+  LIBVA_DRIVERS_PATH: $SNAP/graphics/lib/${CRAFT_ARCH_TRIPLET_BUILD_FOR}/dri
+  # nvidia-container-runtime can only set alternative config directory via XDG_CONFIG_HOME #
+  XDG_CONFIG_HOME: $SNAP_DATA/etc
+
+plugs:
+  home:
+    read: all
+  removable-media:
+  support:
+    interface: docker-support
+  privileged:
+    interface: docker-support
+    privileged-containers: true
+  docker-cli:
+    interface: docker
+  opengl:
+  # For nvidia userspace libs support #
+  gpu-2404:
+    interface: content
+    target: $SNAP/gpu-2404
+    # This is the only relevant provider, but leaving unspecified to prevent auto-installing of the providing snap #
+    # default-provider: mesa-2404
+  graphics-core22:
+    interface: content
+    target: $SNAP/graphics
+    # Currently, this is the only relevant provider, but cannot be default as not supported on all archs #
+    #default-provider: nvidia-core22
+
+slots:
+  config-ro:
+    interface: content
+    content: docker-config-ro
+    read:
+      - $SNAP_DATA/config
+  docker-daemon:
+    interface: docker
+  docker-executables:
+    content: docker-executables
+    interface: content
+    read:
+      - .
+  docker-registry-certificates:
+    content: docker-registry-certificates
+    interface: content
+    write:
+      - $SNAP_DATA/etc/docker/certs.d
+
+apps:
+  nvidia-container-toolkit:
+    command-chain:
+      - bin/gpu-2404-optional-wrapper
+    command: bin/nvidia-container-toolkit
+    daemon: oneshot
+    plugs:
+      - gpu-2404
+      - graphics-core22
+
+parts:
+  wrapper-scripts:
+    plugin: dump
+    source: .
+    stage-packages:
+      - mount
+    organize:
+      nvidia/lib: usr/share/nvidia-container-toolkit/lib
+      nvidia/nvidia-container-toolkit: bin/
+      nvidia/gpu-2404-optional-wrapper: bin/
+    stage:
+      - bin/*
+      # - config/daemon.json
+      - patches/*
+      - usr/share/nvidia-container-toolkit/*
+    prime:
+      - -bin/go-build-helper.sh
+      - -patches/*
+      - bin/*
+      # - config/daemon.json
+      - usr/share/nvidia-container-toolkit/*
+
+  utils:
+    plugin: nil
+    stage-packages:
+      - jq
+      - pciutils
+
+  nvidia-container-toolkit:
+    plugin: go
+    source: https://github.com/NVIDIA/nvidia-container-toolkit.git
+    source-tag: v1.17.3
+    source-depth: 1
+    override-pull: &arch-restrict |
+      [ "${CRAFT_ARCH_BUILD_FOR}" != "amd64" ] && \
+        [ "${CRAFT_ARCH_BUILD_FOR}" != "arm64" ] && \
+        exit 0
+      [ "${CRAFT_STEP_NAME}" = "BUILD" ] && $CRAFT_STAGE/patches/patch.sh
+      craftctl default
+    override-build: *arch-restrict
+    override-stage: *arch-restrict
+    override-prime: *arch-restrict
+    build-snaps: ['go/1.22/stable']
+    build-packages:
+      # TODO: make sure all those are needed
+      - make
+      - libtirpc-dev
+      - libapparmor-dev
+      - libseccomp-dev
+      - libbtrfs-dev
+      - btrfs-progs
+      - gcc
+      - git
+      - libc6-dev
+      - libdevmapper-dev
+      - libltdl-dev
+      - libsystemd-dev
+      - patch
+      - pkg-config
+    # TODO: check if those are needed
+      # previousily staged by docker engine
+    # stage-packages:
+    #   - git
+    #   - libltdl7
+    #   - pigz
+    #   - xz-utils
+    #   - zfsutils-linux
+    organize:
+      bin: usr/bin/
+    stage:
+      - usr/bin/nvidia-container-*
+      - usr/bin/nvidia-ctk
+
+  libnvidia-container:
+    plugin: make
+    source: https://github.com/NVIDIA/libnvidia-container.git
+    source-tag: v1.17.3
+    source-depth: 1
+    override-pull: *arch-restrict
+    override-build: *arch-restrict
+    override-stage: *arch-restrict
+    override-prime: *arch-restrict
+    after: [wrapper-scripts]
+    build-packages:
+      # TODO: make sure all those are needed
+      - bmake
+      - curl
+      - libelf-dev
+      - libcap-dev
+      - libapparmor-dev
+      - libseccomp-dev
+      - libbtrfs-dev
+      - btrfs-progs
+      - gcc
+      - git
+      - libc6-dev
+      - libdevmapper-dev
+      - libltdl-dev
+      - libsystemd-dev
+      - patch
+      - pkg-config
+    # Paths taken from upstream packaging #
+    organize:
+      usr/local/bin/nvidia-container-cli: usr/bin/nvidia-container-cli
+      usr/local/lib: usr/lib/${CRAFT_ARCH_TRIPLET_BUILD_FOR}/
+    prime:
+      - usr/bin/nvidia-container-cli*
+      - usr/lib/${CRAFT_ARCH_TRIPLET_BUILD_FOR}/libnvidia-container*.so*
+
+lint:
+  ignore:
+    # Change to unused-library, once available
+    - library:
+        - usr/lib/**/libltdl.so.*
+        - usr/lib/**/libnvidia-container-go.so.*
+
+# vim:set et ts=2 sw=2:

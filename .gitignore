@@ -1,0 +1,10 @@
+parts/*
+prime/*
+stage/*
+snap/plugins/__pycache__/*
+snap/.snapcraft/*
+
+*.bz2
+*.img
+*.snap
+.spread-reuse.*.yaml
